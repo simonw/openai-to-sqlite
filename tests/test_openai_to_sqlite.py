@@ -9,6 +9,24 @@ EXAMPLE_CSV = """id,name,description
 1,cli,Command line interface
 2,sql,Structured query language"""
 
+EXAMPLE_TSV = """id\tname\tdescription
+1\tcli\tCommand line interface
+2\tsql\tStructured query language"""
+
+EXAMPLE_JSON = """[
+    {
+        "id": 1,
+        "name": "cli",
+        "description": "Command line interface"
+    },
+    {
+        "id": 2,
+        "name": "sql",
+        "description": "Structured query language"
+    }
+]"""
+
+
 MOCK_RESPONSE = {
     "usage": {"total_tokens": 3},
     "data": [{"embedding": [1.5] * 1536}],
@@ -19,23 +37,53 @@ MOCK_EMBEDDING = encode([1.5] * 1536)
 @mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""})
 def test_error_if_no_api_key():
     runner = CliRunner()
-    result = runner.invoke(cli, ["embeddings", "test.db"], input="[]")
+    result = runner.invoke(cli, ["embeddings", "test.db", "-"], input="[]")
     assert result.exit_code == 1
     assert "OpenAI API token is required" in result.output
 
 
+def test_error_if_no_sql_and_no_input_file():
+    runner = CliRunner()
+    result = runner.invoke(cli, ["embeddings", "test.db"])
+    assert result.exit_code == 2
+    assert "Error: Either --sql or input path is required" in result.output
+
+
 @mock.patch.dict(os.environ, {"OPENAI_API_KEY": "abc"})
 @pytest.mark.parametrize("use_token_option", (True, False))
-def test_csv(httpx_mock, tmpdir, use_token_option):
+@pytest.mark.parametrize("format", ("csv", "tsv", "json"))
+@pytest.mark.parametrize("use_stdin", (True, False))
+@pytest.mark.parametrize("use_explicit_format", (True, False))
+def test_embeddings(
+    httpx_mock, tmpdir, use_token_option, format, use_stdin, use_explicit_format
+):
     httpx_mock.add_response(json=MOCK_RESPONSE)
     db_path = str(tmpdir / "embeddings.db")
     runner = CliRunner()
     args = ["embeddings", db_path]
+    data = ""
+    if format == "csv":
+        data = EXAMPLE_CSV
+    elif format == "tsv":
+        data = EXAMPLE_TSV
+    elif format == "json":
+        data = EXAMPLE_JSON
+    if use_stdin:
+        input = data
+        args.append("-")
+    else:
+        input = None
+        input_path = str(tmpdir / "input." + format)
+        with open(input_path, "w") as fp:
+            fp.write(data)
+        args.append(input_path)
+    if use_explicit_format:
+        args.extend(["--format", format])
     expected_token = "abc"
     if use_token_option:
         args.extend(["--token", "def"])
         expected_token = "def"
-    result = runner.invoke(cli, args, input=EXAMPLE_CSV)
+    result = runner.invoke(cli, args, input=input)
     assert result.exit_code == 0
     db = sqlite_utils.Database(db_path)
     assert list(db["embeddings"].rows) == [
@@ -49,6 +97,17 @@ def test_csv(httpx_mock, tmpdir, use_token_option):
         r.headers["authorization"] == "Bearer {}".format(expected_token)
         for r in requests
     )
+
+
+def test_invalid_json_explicit_format():
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["embeddings", "test.db", "-", "--format", "json", "--token", "abc"],
+        input="Bad JSON",
+    )
+    assert result.exit_code == 1
+    assert result.output == "Error: Expecting value: line 1 column 1 (char 0)\n"
 
 
 @mock.patch.dict(os.environ, {"OPENAI_API_KEY": "abc"})
@@ -117,7 +176,8 @@ def test_search(httpx_mock, tmpdir, table_option):
             "test search",
             "--token",
             "abc",
-        ] + extra_opts,
+        ]
+        + extra_opts,
     )
     assert result.exit_code == 0
     assert result.output == "1.000 1\n1.000 2\n"

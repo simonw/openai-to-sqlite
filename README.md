@@ -7,8 +7,6 @@
 
 Save OpenAI API results to a SQLite database
 
-**This tool is under active development**. It is not yet ready for production use.
-
 ## Installation
 
 Install this tool using `pip`:
@@ -17,13 +15,7 @@ Install this tool using `pip`:
 
 ## Usage
 
-For help, run:
-
-    openai-to-sqlite --help
-
-You can also use:
-
-    python -m openai_to_sqlite --help
+This tool provides utilities for interacting with OpenAI APIs and storing the results in a SQLite database.
 
 ### Configuration
 
@@ -39,7 +31,7 @@ Or pass it to each command using the `--token sk-...` option.
 
 ### Embeddings
 
-The `embeddings` command can be used to calculate and store OpenID embeddings for strings of text.
+The `embeddings` command can be used to calculate and store [OpenAI embeddings](https://beta.openai.com/docs/guides/embeddings) for strings of text.
 
 Each embedding has a cost, so be sure to familiarize yourself with [the pricing](https://openai.com/api/pricing/) for the embedding model.
 
@@ -48,15 +40,15 @@ The command can accept data in four different ways:
 - As a JSON file containing a list of objects
 - As a CSV file
 - As a TSV file
-- Reading data from a SQLite database
+- By running queries against a SQLite database
 
-For all of these formats there should be a `id` column, followed by one or more text columns.
+For all of these formats there should be an `id` column, followed by one or more text columns.
 
 The ID will be stored as the content ID. Any other columns will be concatenated together and used as the text to be embedded.
 
 The embeddings from the API will then be saved as binary blobs in the `embeddings` table of the specified SQLite database - or another table, if you pass the `-t/--table` option.
 
-#### CSV
+#### JSON, CSV and TSV
 
 Given a CSV file like this:
 
@@ -65,10 +57,9 @@ Given a CSV file like this:
     2,This is another test
 
 Embeddings can be stored like so:
-
-    openai-to-sqlite embeddings embeddings.db data.csv --csv
-
-The `--csv` flag tells the tool that the input file is a CSV file. Without this it will attempt to guess the format.
+```bash
+openai-to-sqlite embeddings embeddings.db data.csv
+```
 
 The resulting schema looks like this:
 
@@ -78,7 +69,47 @@ CREATE TABLE [embeddings] (
    [embedding] BLOB
 );
 ```
-The binary data can be extracted into a Python array of floating point numbers like this:
+The same data can be provided as TSV data:
+```
+id    content
+1     This is a test
+2     This is another test
+```
+Then imported like this:
+```bash
+openai-to-sqlite embeddings embeddings.db data.tsv
+```
+Or as JSON data:
+```json
+[
+  {"id": 1, "content": "This is a test"},
+  {"id": 2, "content": "This is another test"}
+]
+```
+Imported like this:
+```
+openai-to-sqlite embeddings embeddings.db data.json
+```
+In each of these cases the tool automatically detects the format of the data. It does this by inspecting the data itself - it does not consider the file extension.
+
+If the automatic detection is not working, you can pass `--format json`, `csv` or `tsv` to explicitly specify a format:
+
+```bash
+openai-to-sqlite embeddings embeddings.db data.tsv --format tsv
+```
+### Importing from standard input
+
+You can use a filename of `-` to pipe data in to standard input:
+
+```bash
+cat data.tsv | openai-to-sqlite embeddings embeddings.db -
+```
+
+### Working with the stored embeddings
+
+The `embedding` column is a SQLite blob containing 1536 floating point numbers encoded as a sequence of 4 byte values.
+
+You can extract them back to an array of floating point values in Python like this:
 ```python
 import struct
 
@@ -86,30 +117,6 @@ vector = struct.unpack(
     "f" * 1536, binary_embedding
 )
 ```
-
-#### JSON
-
-The expected JSON format looks like this:
-
-```json
-[
-    {
-        "id": "1",
-        "content": "This is some text"
-    },
-    {
-        "id": "2",
-        "content": "This is some more text"
-    }
-]
-```
-This can be passed to the command like so:
-
-    openai-to-sqlite embeddings embeddings.db data.json
-
-Or piped to standard input (which works for CSV and TSV files too):
-
-    cat data.json | openai-to-sqlite embeddings embeddings.db
 
 #### Data from a SQL query
 

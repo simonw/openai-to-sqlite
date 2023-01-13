@@ -1,5 +1,6 @@
 import click
 import httpx
+import json
 from sqlite_utils.utils import rows_from_file, Format
 import sqlite_utils
 import struct
@@ -16,11 +17,10 @@ def cli():
     "db_path",
     type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
 )
-@click.option(
-    "-i",
-    "--input",
+@click.argument(
+    "input_path",
     type=click.File("rb"),
-    default="-",
+    required=False,
 )
 @click.option(
     "--token",
@@ -35,10 +35,8 @@ def cli():
     help="Name of the table to store embeddings in",
 )
 @click.option(
-    "as_csv",
-    "--csv",
-    is_flag=True,
-    help="Treat input as CSV",
+    "--format",
+    type=click.Choice(["json", "csv", "tsv"]),
 )
 @click.option("--sql", help="Read input using this SQL query")
 @click.option(
@@ -47,7 +45,7 @@ def cli():
     multiple=True,
     help="Additional databases to attach - specify alias and file path",
 )
-def embeddings(db_path, input, token, table_name, as_csv, sql, attach):
+def embeddings(db_path, input_path, token, table_name, format, sql, attach):
     """
     Store embeddings for one or more text documents
 
@@ -57,6 +55,8 @@ def embeddings(db_path, input, token, table_name, as_csv, sql, attach):
     are assumed to be text that should be concatenated together
     in order to calculate the embeddings.
     """
+    if not input_path and not sql:
+        raise click.UsageError("Either --sql or input path is required")
     if not token:
         raise click.ClickException(
             "OpenAI API token is required, use --token=x or set the "
@@ -73,11 +73,14 @@ def embeddings(db_path, input, token, table_name, as_csv, sql, attach):
         )
     if sql:
         rows = db.query(sql)
-    elif as_csv:
-        rows, _ = rows_from_file(input, Format.CSV)
     else:
         # Auto-detect
-        rows, _ = rows_from_file(input)
+        try:
+            rows, _ = rows_from_file(
+                input_path, Format[format.upper()] if format else None
+            )
+        except json.JSONDecodeError as ex:
+            raise click.ClickException(str(ex))
     # Use a click progressbar
     total_tokens = 0
     skipped = 0
