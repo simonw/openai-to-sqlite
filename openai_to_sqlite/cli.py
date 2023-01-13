@@ -39,7 +39,14 @@ def cli():
     is_flag=True,
     help="Treat input as CSV",
 )
-def embeddings(db_path, input, token, table_name, as_csv):
+@click.option("--sql", help="Read input using this SQL query")
+@click.option(
+    "--attach",
+    type=(str, click.Path(file_okay=True, dir_okay=False, allow_dash=False)),
+    multiple=True,
+    help="Additional databases to attach - specify alias and file path",
+)
+def embeddings(db_path, input, token, table_name, as_csv, sql, attach):
     """
     Store embeddings for one or more text documents
 
@@ -55,13 +62,17 @@ def embeddings(db_path, input, token, table_name, as_csv):
             "OPENAI_API_KEY environment variable"
         )
     db = sqlite_utils.Database(db_path)
+    for alias, attach_path in attach:
+        db.attach(alias, attach_path)
     table = db[table_name]
     if not table.exists():
         table.create(
             {"id": str, "embedding": bytes},
             pk="id",
         )
-    if as_csv:
+    if sql:
+        rows = db.query(sql)
+    elif as_csv:
         rows, _ = rows_from_file(input, Format.CSV)
     else:
         # Auto-detect
@@ -81,7 +92,7 @@ def embeddings(db_path, input, token, table_name, as_csv):
                 continue
             except sqlite_utils.db.NotFoundError:
                 pass
-            text = " ".join(values[1:])
+            text = " ".join(v or "" for v in values[1:])
             response = httpx.post(
                 "https://api.openai.com/v1/embeddings",
                 headers={
