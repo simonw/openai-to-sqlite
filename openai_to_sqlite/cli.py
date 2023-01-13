@@ -45,7 +45,13 @@ def cli():
     multiple=True,
     help="Additional databases to attach - specify alias and file path",
 )
-def embeddings(db_path, input_path, token, table_name, format, sql, attach):
+@click.option(
+    "--batch-size",
+    type=click.IntRange(1, 2048),
+    default=100,
+    help="Number of rows to send to OpenAI at once. Defaults to 100 - use a higher value if your text is smaller strings.",
+)
+def embeddings(db_path, input_path, token, table_name, format, sql, attach, batch_size):
     """
     Store embeddings for one or more text documents
 
@@ -90,35 +96,48 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach):
     with click.progressbar(
         rows, label="Fetching embeddings", show_percent=True, length=expected_length
     ) as rows:
-        for row in rows:
-            values = list(row.values())
-            id = values[0]
-            try:
-                table.get(id)
-                skipped += 1
-                continue
-            except sqlite_utils.db.NotFoundError:
-                pass
-            text = " ".join(v or "" for v in values[1:])
-            response = httpx.post(
-                "https://api.openai.com/v1/embeddings",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-                json={"input": text, "model": "text-embedding-ada-002"},
-            )
-            if response.status_code == 400:
-                click.echo(response.json()["error"], err=True)
-                click.echo(f"For ID {id} - skipping", err=True)
-                continue
-            response.raise_for_status()
-            data = response.json()
-            total_tokens += data["usage"]["total_tokens"]
-            vector = data["data"][0]["embedding"]
-            # Encode vector as bytes
-            embedding = encode(vector)
-            table.insert({"id": id, "embedding": embedding}, replace=True)
+        # Run this batch_size at a time
+        for batch in batch_rows(rows, batch_size):
+            text_to_send = []
+            ids_in_batch = []
+            for row in batch:
+                values = list(row.values())
+                id = values[0]
+                try:
+                    table.get(id)
+                    skipped += 1
+                    continue
+                except sqlite_utils.db.NotFoundError:
+                    pass
+                text = " ".join(v or "" for v in values[1:])
+                ids_in_batch.append(id)
+                text_to_send.append(text)
+            # Send to OpenAI, but only if batch is populated - since
+            # the skip logic could have resulted in an empty batch
+            if text_to_send:
+                response = httpx.post(
+                    "https://api.openai.com/v1/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"input": text_to_send, "model": "text-embedding-ada-002"},
+                )
+                if response.status_code == 400:
+                    click.echo(response.json()["error"], err=True)
+                    click.echo(f"For IDs: {ids_in_batch} - skipping", err=True)
+                    continue
+                response.raise_for_status()
+                data = response.json()
+                total_tokens += data["usage"]["total_tokens"]
+                results = data["data"]
+                # Each one has an "embedding" and an "index"
+                for result in results:
+                    embedding = encode(result["embedding"])
+                    table.insert(
+                        {"id": ids_in_batch[result["index"]], "embedding": embedding},
+                        replace=True,
+                    )
     click.echo(f"Total tokens used: {total_tokens}", err=True)
     if skipped:
         click.echo(f"Skipped {skipped} rows that already existed", err=True)
@@ -191,3 +210,14 @@ def decode(blob):
 
 def encode(values):
     return struct.pack("f" * 1536, *values)
+
+
+def batch_rows(rows, batch_size):
+    batch = []
+    for row in rows:
+        batch.append(row)
+        if len(batch) == batch_size:
+            yield batch
+            batch = []
+    if batch:
+        yield batch

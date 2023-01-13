@@ -29,8 +29,18 @@ EXAMPLE_JSON = """[
 
 MOCK_RESPONSE = {
     "usage": {"total_tokens": 3},
-    "data": [{"embedding": [1.5] * 1536}],
+    "data": [
+        {"index": 0, "embedding": [1.5] * 1536},
+        {"index": 1, "embedding": [1.5] * 1536},
+    ],
 }
+MOCK_RESPONSE_BATCH_SIZE_1 = {
+    "usage": {"total_tokens": 3},
+    "data": [
+        {"index": 0, "embedding": [1.5] * 1536},
+    ],
+}
+
 MOCK_EMBEDDING = encode([1.5] * 1536)
 
 
@@ -54,10 +64,19 @@ def test_error_if_no_sql_and_no_input_file():
 @pytest.mark.parametrize("format", ("csv", "tsv", "json"))
 @pytest.mark.parametrize("use_stdin", (True, False))
 @pytest.mark.parametrize("use_explicit_format", (True, False))
+@pytest.mark.parametrize("batch_size", (None, 1))
 def test_embeddings(
-    httpx_mock, tmpdir, use_token_option, format, use_stdin, use_explicit_format
+    httpx_mock,
+    tmpdir,
+    use_token_option,
+    format,
+    use_stdin,
+    use_explicit_format,
+    batch_size,
 ):
-    httpx_mock.add_response(json=MOCK_RESPONSE)
+    httpx_mock.add_response(
+        json=MOCK_RESPONSE if batch_size is None else MOCK_RESPONSE_BATCH_SIZE_1
+    )
     db_path = str(tmpdir / "embeddings.db")
     runner = CliRunner()
     args = ["embeddings", db_path]
@@ -79,6 +98,8 @@ def test_embeddings(
         args.append(input_path)
     if use_explicit_format:
         args.extend(["--format", format])
+    if batch_size:
+        args.extend(["--batch-size", str(batch_size)])
     expected_token = "abc"
     if use_token_option:
         args.extend(["--token", "def"])
@@ -91,7 +112,7 @@ def test_embeddings(
         {"id": "2", "embedding": MOCK_EMBEDDING},
     ]
     requests = httpx_mock.get_requests()
-    assert len(requests) == 2
+    assert len(requests) == 1 if batch_size is None else 2
     assert all(r.url == "https://api.openai.com/v1/embeddings" for r in requests)
     assert all(
         r.headers["authorization"] == "Bearer {}".format(expected_token)

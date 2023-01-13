@@ -5,7 +5,7 @@
 [![Tests](https://github.com/simonw/openai-to-sqlite/workflows/Test/badge.svg)](https://github.com/simonw/openai-to-sqlite/actions?query=workflow%3ATest)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://github.com/simonw/openai-to-sqlite/blob/master/LICENSE)
 
-Save OpenAI API results to a SQLite database
+This tool provides utilities for interacting with OpenAI APIs and storing the results in a SQLite database.
 
 ## Installation
 
@@ -13,11 +13,7 @@ Install this tool using `pip`:
 
     pip install openai-to-sqlite
 
-## Usage
-
-This tool provides utilities for interacting with OpenAI APIs and storing the results in a SQLite database.
-
-### Configuration
+## Configuration
 
 You will need an OpenAI API key to use this tool.
 
@@ -29,7 +25,7 @@ You can then either set the API key as an environment variable:
 
 Or pass it to each command using the `--token sk-...` option.
 
-### Embeddings
+## Embeddings
 
 The `embeddings` command can be used to calculate and store [OpenAI embeddings](https://beta.openai.com/docs/guides/embeddings) for strings of text.
 
@@ -48,7 +44,7 @@ The ID will be stored as the content ID. Any other columns will be concatenated 
 
 The embeddings from the API will then be saved as binary blobs in the `embeddings` table of the specified SQLite database - or another table, if you pass the `-t/--table` option.
 
-#### JSON, CSV and TSV
+### JSON, CSV and TSV
 
 Given a CSV file like this:
 
@@ -97,7 +93,7 @@ If the automatic detection is not working, you can pass `--format json`, `csv` o
 ```bash
 openai-to-sqlite embeddings embeddings.db data.tsv --format tsv
 ```
-### Importing from standard input
+### Importing data from standard input
 
 You can use a filename of `-` to pipe data in to standard input:
 
@@ -105,20 +101,7 @@ You can use a filename of `-` to pipe data in to standard input:
 cat data.tsv | openai-to-sqlite embeddings embeddings.db -
 ```
 
-### Working with the stored embeddings
-
-The `embedding` column is a SQLite blob containing 1536 floating point numbers encoded as a sequence of 4 byte values.
-
-You can extract them back to an array of floating point values in Python like this:
-```python
-import struct
-
-vector = struct.unpack(
-    "f" * 1536, binary_embedding
-)
-```
-
-#### Data from a SQL query
+### Data from a SQL query
 
 The `--sql` option can be used to read data to be embedded from the attached SQLite database. The query must return an `id` column and one or more text columns to be embedded.
 
@@ -139,7 +122,28 @@ A progress bar will be displayed when using `--sql` that indicates how long the 
 
 The CSV/TSV/JSON options do not correctly display the progress bar. You can work around this by importing your data into SQLite first (e.g. [using sqlite-utils](https://sqlite-utils.datasette.io/en/stable/cli.html#inserting-json-data)) and then running the embeddings using `--sql`.
 
-### Search
+### Batching
+
+Embeddings will be sent to the OpenAI embeddings API in batches of 100. If you know that your data is short strings you can increase the batch size, up to 2048, using the `--batch-size` option:
+
+```bash
+openai-to-sqlite embeddings embeddings.db data.csv --batch-size 2048
+```
+
+### Working with the stored embeddings
+
+The `embedding` column is a SQLite blob containing 1536 floating point numbers encoded as a sequence of 4 byte values.
+
+You can extract them back to an array of floating point values in Python like this:
+```python
+import struct
+
+vector = struct.unpack(
+    "f" * 1536, binary_embedding
+)
+```
+
+### Searching embeddings with the search command
 
 Having saved the embeddings for content, you can run searches using the `search` command:
 ```bash
