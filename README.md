@@ -135,6 +135,9 @@ openai-to-sqlite embeddings embeddings.db \
   --attach documents documents.db \
   --sql "select id, title from documents.documents"
 ```
+A progress bar will be displayed when using `--sql` that indicates how long the embeddings are likely to take to calculate.
+
+The CSV/TSV/JSON options do not correctly display the progress bar. You can work around this by importing your data into SQLite first (e.g. [using sqlite-utils](https://sqlite-utils.datasette.io/en/stable/cli.html#inserting-json-data)) and then running the embeddings using `--sql`.
 
 ### Search
 

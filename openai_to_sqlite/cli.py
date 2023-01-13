@@ -71,8 +71,11 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach):
             {"id": str, "embedding": bytes},
             pk="id",
         )
+    expected_length = None
     if sql:
         rows = db.query(sql)
+        count_sql = "select count(*) as c from ({})".format(sql)
+        expected_length = next(db.query(count_sql))["c"]
     else:
         # Auto-detect
         try:
@@ -85,7 +88,7 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach):
     total_tokens = 0
     skipped = 0
     with click.progressbar(
-        rows, label="Fetching embeddings", show_percent=True
+        rows, label="Fetching embeddings", show_percent=True, length=expected_length
     ) as rows:
         for row in rows:
             values = list(row.values())
