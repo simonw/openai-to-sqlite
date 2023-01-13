@@ -132,9 +132,9 @@ openai-to-sqlite embeddings embeddings.db \
 ### Search
 
 Having saved the embeddings for content, you can run searches using the `search` command:
-
-    openai-to-sqlite search embeddings.db 'this is my search term'
-
+```bash
+openai-to-sqlite search embeddings.db 'this is my search term'
+```
 The output will be a list of cosine similarity scores and content IDs:
 ```
 % openai-to-sqlite search blog.db 'cool datasette demo'
@@ -149,6 +149,12 @@ The output will be a list of cosine similarity scores and content IDs:
 0.815 7872
 0.814 8169
 ```
+
+Add the `-t/--table` option if your embeddings are stored in a different table:
+```bash
+openai-to-sqlite search content.db 'this is my search term' -t documents
+```
+
 ## Development
 
 To contribute to this tool, first checkout the code. Then create a new virtual environment:

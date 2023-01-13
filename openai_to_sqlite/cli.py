@@ -29,6 +29,7 @@ def cli():
 )
 @click.option(
     "table_name",
+    "-t",
     "--table",
     default="embeddings",
     help="Name of the table to store embeddings in",
@@ -110,7 +111,7 @@ def embeddings(db_path, input, token, table_name, as_csv, sql, attach):
             total_tokens += data["usage"]["total_tokens"]
             vector = data["data"][0]["embedding"]
             # Encode vector as bytes
-            embedding = struct.pack("f" * len(vector), *vector)
+            embedding = encode(vector)
             table.insert({"id": id, "embedding": embedding}, replace=True)
     click.echo(f"Total tokens used: {total_tokens}", err=True)
     if skipped:
@@ -130,9 +131,10 @@ def embeddings(db_path, input, token, table_name, as_csv, sql, attach):
 )
 @click.option(
     "table_name",
+    "-t",
     "--table",
     default="embeddings",
-    help="Name of the table to store embeddings in",
+    help="Name of the table containing the embeddings",
 )
 def search(db_path, query, token, table_name):
     """
@@ -160,9 +162,7 @@ def search(db_path, query, token, table_name):
     data = response.json()
     vector = data["data"][0]["embedding"]
     # Now calculate cosine similarity with everything in the database table
-    other_vectors = [
-        (row["id"], struct.unpack("f" * 1536, row["embedding"])) for row in table.rows
-    ]
+    other_vectors = [(row["id"], decode(row["embedding"])) for row in table.rows]
     results = [
         (id, cosine_similarity(vector, other_vector))
         for id, other_vector in other_vectors
@@ -177,3 +177,11 @@ def cosine_similarity(a, b):
     magnitude_a = sum(x * x for x in a) ** 0.5
     magnitude_b = sum(x * x for x in b) ** 0.5
     return dot_product / (magnitude_a * magnitude_b)
+
+
+def decode(blob):
+    return struct.unpack("f" * 1536, blob)
+
+
+def encode(values):
+    return struct.pack("f" * 1536, *values)

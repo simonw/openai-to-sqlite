@@ -1,5 +1,5 @@
 from click.testing import CliRunner
-from openai_to_sqlite.cli import cli
+from openai_to_sqlite.cli import cli, encode
 import os
 import pytest
 import sqlite_utils
@@ -11,9 +11,9 @@ EXAMPLE_CSV = """id,name,description
 
 MOCK_RESPONSE = {
     "usage": {"total_tokens": 3},
-    "data": [{"embedding": [1, 2, 3]}],
+    "data": [{"embedding": [1.5] * 1536}],
 }
-MOCK_EMBEDDING = b"\x00\x00\x80?\x00\x00\x00@\x00\x00@@"
+MOCK_EMBEDDING = encode([1.5] * 1536)
 
 
 @mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""})
@@ -53,8 +53,8 @@ def test_csv(httpx_mock, tmpdir, use_token_option):
 
 @mock.patch.dict(os.environ, {"OPENAI_API_KEY": "abc"})
 @pytest.mark.parametrize("use_other_db", (True, False))
-@pytest.mark.parametrize("table", (None, "custom_embeddings"))
-def test_sql(httpx_mock, tmpdir, use_other_db, table):
+@pytest.mark.parametrize("table_option", (None, "-t", "--table"))
+def test_sql(httpx_mock, tmpdir, use_other_db, table_option):
     httpx_mock.add_response(json=MOCK_RESPONSE)
     db_path = str(tmpdir / "embeddings.db")
     db = sqlite_utils.Database(db_path)
@@ -66,8 +66,10 @@ def test_sql(httpx_mock, tmpdir, use_other_db, table):
         extra_opts = ["--attach", "other", db_path2]
         other_table = "other.content"
 
-    if table:
-        extra_opts.extend(["--table", table])
+    expected_table = "embeddings"
+    if table_option:
+        extra_opts.extend([table_option, "other_table"])
+        expected_table = "other_table"
 
     db["content"].insert_all(
         [
@@ -82,7 +84,40 @@ def test_sql(httpx_mock, tmpdir, use_other_db, table):
     result = runner.invoke(cli, args)
     assert result.exit_code == 0
     embeddings_db = sqlite_utils.Database(db_path)
-    assert list(embeddings_db[table or "embeddings"].rows) == [
+    assert list(embeddings_db[expected_table].rows) == [
         {"id": "1", "embedding": MOCK_EMBEDDING},
         {"id": "2", "embedding": MOCK_EMBEDDING},
     ]
+
+
+@pytest.mark.parametrize("table_option", (None, "-t", "--table"))
+def test_search(httpx_mock, tmpdir, table_option):
+    httpx_mock.add_response(json=MOCK_RESPONSE)
+    db_path = str(tmpdir / "embeddings.db")
+    db = sqlite_utils.Database(db_path)
+    table = "embeddings"
+    if table_option:
+        table = "other_table"
+    db[table].insert_all(
+        [
+            {"id": 1, "embedding": MOCK_EMBEDDING},
+            {"id": 2, "embedding": MOCK_EMBEDDING},
+        ],
+        pk="id",
+    )
+    extra_opts = []
+    if table_option:
+        extra_opts.extend([table_option, "other_table"])
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "search",
+            db_path,
+            "test search",
+            "--token",
+            "abc",
+        ] + extra_opts,
+    )
+    assert result.exit_code == 0
+    assert result.output == "1.000 1\n1.000 2\n"
