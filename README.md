@@ -7,6 +7,8 @@
 
 This tool provides utilities for interacting with OpenAI APIs and storing the results in a SQLite database.
 
+See [Semantic search answers: Q&A against documentation with GPT3 + OpenAI embeddings](https://simonwillison.net/2023/Jan/13/semantic-search-answers/) for background on this project.
+
 ## Installation
 
 Install this tool using `pip`:
