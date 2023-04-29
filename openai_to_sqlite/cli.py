@@ -296,10 +296,11 @@ def query(db_path, sql, token):
             cursor = db.execute(sql)
             if cursor.description:
                 headers = [col[0] for col in cursor.description]
+            click.echo("")
             for row in cursor:
                 if headers:
                     row = dict(zip(headers, row))
-                    click.echo(row)
+                    click.echo(json.dumps(row))
 
     # Calculate price
     price_100th_cents = 0
@@ -313,11 +314,11 @@ def query(db_path, sql, token):
             per_model[model] = {
                 "completion_tokens": 0,
                 "prompt_tokens": 0,
-                "price": 0,
+                "price_100th_cents": 0,
             }
         per_model[model]["completion_tokens"] += completion
         per_model[model]["prompt_tokens"] += prompt
-        per_model[model]["price"] += model_price
+        per_model[model]["price_100th_cents"] += model_price
         price_100th_cents += model_price
     cents = price_100th_cents / 100
     message = f"Total price: ${cents / 100:.4f}"
