@@ -1,9 +1,24 @@
 import click
 import httpx
 import json
+import openai
 from sqlite_utils.utils import rows_from_file, Format
+from sqlite_utils.utils import sqlite3
 import sqlite_utils
 import struct
+
+sqlite3.enable_callback_tracebacks(True)
+
+PRICING = {
+    # model, (prompt, completion)
+    # prices are per 1K tokens in 100ths of a cent
+    "gpt4": (300, 600),
+    "chatgpt": (20, 20),
+    "ada": (4, 4),
+    "babbage": (5, 5),
+    "curie": (20, 20),
+    "davinci": (200, 200),
+}
 
 
 @click.group()
@@ -195,6 +210,99 @@ def search(db_path, query, token, table_name):
     results.sort(key=lambda r: r[1], reverse=True)
     for id, score in results[:10]:
         print(f"{score:.3f} {id}")
+
+
+@cli.command()
+@click.argument(
+    "db_path",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+@click.argument("sql")
+@click.option(
+    "--token",
+    help="OpenAI API key",
+    envvar="OPENAI_API_KEY",
+)
+def query(db_path, sql, token):
+    """
+    Execute SQL query against the database, with access to these functions:
+
+    \b
+    - chatgpt(prompt) - run GPT3.5 against the prompt
+    - chatgpt(prompt, system_prompt) - GPT 3.5 with a system prompt
+    - gpt4(prompt)
+    - gpt4(prompt, system_prompt)
+    - ada(prompt)
+    - babbage(prompt)
+    - cury(prompt)
+    - davinci(prompt)
+    - openai_completion(model_name, prompt, options_json)
+    - openai_chat(model_name, messages_json, system_prompt, options_json)
+    """
+    if not token:
+        raise click.ClickException(
+            "OpenAI API token is required, use --token=x or set the "
+            "OPENAI_API_KEY environment variable"
+        )
+    openai.api_key = token
+    db = sqlite_utils.Database(db_path)
+
+    used_tokens = []
+
+    def usage(model, usage):
+        assert usage.total_tokens == usage.completion_tokens + usage.prompt_tokens
+        used_tokens.append((model, (usage.completion_tokens, usage.prompt_tokens)))
+
+    @db.register_function(name="chatgpt")
+    def _(prompt):
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "user", "content": prompt},
+            ],
+        )
+        usage("chatgpt", response.usage)
+        return response.choices[0].message.content
+
+    @db.register_function(name="chatgpt")
+    def _(prompt, system_prompt):
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        usage("chatgpt", response.usage)
+        return response.choices[0].message.content
+
+    for row in db.query(sql):
+        click.echo(json.dumps(row))
+
+    # Calculate price
+    price_100th_cents = 0
+    per_model = {}
+    for model, (completion, prompt) in used_tokens:
+        prices = PRICING[model]
+        model_price = ((prompt * prices[0]) / 1000.0) + (
+            (completion * prices[1]) / 1000.0
+        )
+        if model not in per_model:
+            per_model[model] = {
+                "completion_tokens": 0,
+                "prompt_tokens": 0,
+                "price": 0,
+            }
+        per_model[model]["completion_tokens"] += completion
+        per_model[model]["prompt_tokens"] += prompt
+        per_model[model]["price"] += model_price
+        price_100th_cents += model_price
+    cents = price_100th_cents / 100
+    message = f"Total price: ${cents / 100:.4f}"
+    if cents < 100:
+        message += f" ({cents:.4f} cents)"
+    click.echo(message, err=True)
+    click.echo(json.dumps(per_model, indent=4), err=True)
 
 
 def cosine_similarity(a, b):
