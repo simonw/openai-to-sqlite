@@ -230,14 +230,6 @@ def query(db_path, sql, token):
     \b
     - chatgpt(prompt) - run GPT3.5 against the prompt
     - chatgpt(prompt, system_prompt) - GPT 3.5 with a system prompt
-    - gpt4(prompt)
-    - gpt4(prompt, system_prompt)
-    - ada(prompt)
-    - babbage(prompt)
-    - cury(prompt)
-    - davinci(prompt)
-    - openai_completion(model_name, prompt, options_json)
-    - openai_chat(model_name, messages_json, system_prompt, options_json)
     """
     if not token:
         raise click.ClickException(
@@ -253,31 +245,61 @@ def query(db_path, sql, token):
         assert usage.total_tokens == usage.completion_tokens + usage.prompt_tokens
         used_tokens.append((model, (usage.completion_tokens, usage.prompt_tokens)))
 
+    # First pass to count executions
+    todo_count = 0
+
     @db.register_function(name="chatgpt")
     def _(prompt):
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "user", "content": prompt},
-            ],
-        )
-        usage("chatgpt", response.usage)
-        return response.choices[0].message.content
+        nonlocal todo_count
+        todo_count += 1
+        return ""
 
     @db.register_function(name="chatgpt")
     def _(prompt, system_prompt):
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        usage("chatgpt", response.usage)
-        return response.choices[0].message.content
+        nonlocal todo_count
+        todo_count += 1
+        return ""
 
-    for row in db.query(sql):
-        click.echo(json.dumps(row))
+    # Run it in a transaction and then roll it back
+    with db.conn:
+        db.execute(sql)
+        db.conn.rollback()
+
+    with click.progressbar(length=todo_count, label="Running", show_pos=True) as bar:
+        # Register the functions to do the work
+        @db.register_function(name="chatgpt", replace=True)
+        def _(prompt):
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            usage("chatgpt", response.usage)
+            bar.update(1)
+            return response.choices[0].message.content
+
+        @db.register_function(name="chatgpt", replace=True)
+        def _(prompt, system_prompt):
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            usage("chatgpt", response.usage)
+            bar.update(1)
+            return response.choices[0].message.content
+
+        with db.conn:
+            cursor = db.execute(sql)
+            if cursor.description:
+                headers = [col[0] for col in cursor.description]
+            for row in cursor:
+                if headers:
+                    row = dict(zip(headers, row))
+                    click.echo(row)
 
     # Calculate price
     price_100th_cents = 0
