@@ -325,7 +325,17 @@ def query(db_path, sql, token):
     if cents < 100:
         message += f" ({cents:.4f} cents)"
     click.echo(message, err=True)
-    click.echo(json.dumps(per_model, indent=4), err=True)
+    click.echo(json.dumps(round_floats(per_model), indent=4), err=True)
+
+
+def round_floats(o):
+    if isinstance(o, float):
+        return round(o, 5)
+    if isinstance(o, dict):
+        return {k: round_floats(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [round_floats(x) for x in o]
+    return o
 
 
 def cosine_similarity(a, b):
