@@ -31,7 +31,7 @@ setup(
         [console_scripts]
         openai-to-sqlite=openai_to_sqlite.cli:cli
     """,
-    install_requires=["click", "httpx", "sqlite-utils>=3.28"],
-    extras_require={"test": ["pytest", "pytest-httpx"]},
+    install_requires=["click", "httpx", "sqlite-utils>=3.28", "openai"],
+    extras_require={"test": ["pytest", "pytest-httpx", "pytest-mock"]},
     python_requires=">=3.7",
 )
