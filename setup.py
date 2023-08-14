@@ -33,5 +33,5 @@ setup(
     """,
     install_requires=["click", "httpx", "sqlite-utils>=3.28", "openai", "tiktoken"],
     extras_require={"test": ["pytest", "pytest-httpx", "pytest-mock"]},
-    python_requires=">=3.7",
+    python_requires=">=3.8",
 )
