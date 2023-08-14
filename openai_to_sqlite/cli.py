@@ -6,6 +6,7 @@ from sqlite_utils.utils import rows_from_file, Format
 from sqlite_utils.utils import sqlite3
 import sqlite_utils
 import struct
+import tiktoken
 
 sqlite3.enable_callback_tracebacks(True)
 
@@ -126,7 +127,11 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach, batc
                     pass
                 text = " ".join(v or "" for v in values[1:])
                 ids_in_batch.append(id)
-                text_to_send.append(text)
+                # Actual limit is 8191 but we are being a bit short for safety:
+                text_to_send.append(truncate_tokens(text, 8100))
+            if not text_to_send:
+                # Skip logic could have resulted in an empty batch
+                continue
             # Send to OpenAI, but only if batch is populated - since
             # the skip logic could have resulted in an empty batch
             if text_to_send:
@@ -362,3 +367,23 @@ def batch_rows(rows, batch_size):
             batch = []
     if batch:
         yield batch
+
+
+encoding = None
+
+
+def count_tokens(string: str) -> int:
+    """Returns the number of tokens in a text string."""
+    global encoding
+    if encoding is None:
+        encoding = tiktoken.get_encoding("cl100k_base")
+    return len(encoding.encode(string))
+
+
+def truncate_tokens(text: str, truncate: int) -> str:
+    global encoding
+    if encoding is None:
+        encoding = tiktoken.get_encoding("cl100k_base")
+    tokens = encoding.encode(text)
+    tokens = tokens[:truncate]
+    return encoding.decode(tokens)
