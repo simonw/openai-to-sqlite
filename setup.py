@@ -1,7 +1,7 @@
 from setuptools import setup
 import os
 
-VERSION = "0.2"
+VERSION = "0.3"
 
 
 def get_long_description():
@@ -31,7 +31,7 @@ setup(
         [console_scripts]
         openai-to-sqlite=openai_to_sqlite.cli:cli
     """,
-    install_requires=["click", "httpx", "sqlite-utils>=3.28"],
-    extras_require={"test": ["pytest", "pytest-httpx"]},
+    install_requires=["click", "httpx", "sqlite-utils>=3.28", "openai", "tiktoken"],
+    extras_require={"test": ["pytest", "pytest-httpx", "pytest-mock"]},
     python_requires=">=3.7",
 )

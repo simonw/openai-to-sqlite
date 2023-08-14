@@ -27,6 +27,38 @@ You can then either set the API key as an environment variable:
 
 Or pass it to each command using the `--token sk-...` option.
 
+## Calling OpenAI APIs with SQL functions
+
+The `openai-to-sqlite query` command can be used to execute SQL queries that call OpenAI APIs.
+
+Functions available are:
+
+- `chatgpt(prompt)` - call the OpenAI Chat API using model `gpt-3.5-turbo` with the specified prompt.
+- `chatgpt(prompt, system)` - call that API with the prompt and the specified system prompt.
+
+More functions are planned in the future.
+
+Here's how to use this command to run basic sentiment analysis against content in a table:
+```
+openai-to-sqlite query database.db "
+  update messages set sentiment = chatgpt(
+    'Sentiment analysis for this message: ' || message ||
+    ' - ONLY return a lowercase string from: positive, negative, neutral, unknown'
+  )
+  where sentiment not in ('positive', 'negative', 'neutral', 'unknown')
+    or sentiment is null
+"
+```
+This updates the `sentiment` column in a table called `messages`. It populates it with the response from the specified prompt.
+
+The command will display a progress bar indicating how many rows are being processed.
+
+You can add an empty `sentiment` column to a table using [sqlite-utils](https://sqlite-utils.datasette.io/) like this:
+
+```
+sqlite-utils add-column database.db messages sentiment
+```
+
 ## Embeddings
 
 The `embeddings` command can be used to calculate and store [OpenAI embeddings](https://beta.openai.com/docs/guides/embeddings) for strings of text.
@@ -169,6 +201,8 @@ The output will be a list of cosine similarity scores and content IDs:
 Add the `-t/--table` option if your embeddings are stored in a different table:
 ```bash
 openai-to-sqlite search content.db 'this is my search term' -t documents
+
+Add `--count 20` to retrieve 20 results (the default is 10).
 ```
 
 ### Search for similar content with the similar command

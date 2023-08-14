@@ -4,6 +4,8 @@ import os
 import pytest
 import sqlite_utils
 from unittest import mock
+from unittest.mock import MagicMock
+import openai
 
 EXAMPLE_CSV = """id,name,description
 1,cli,Command line interface
@@ -171,7 +173,8 @@ def test_sql(httpx_mock, tmpdir, use_other_db, table_option):
 
 
 @pytest.mark.parametrize("table_option", (None, "-t", "--table"))
-def test_search(httpx_mock, tmpdir, table_option):
+@pytest.mark.parametrize("count", [None, 1])
+def test_search(httpx_mock, tmpdir, table_option, count):
     httpx_mock.add_response(json=MOCK_RESPONSE)
     db_path = str(tmpdir / "embeddings.db")
     db = sqlite_utils.Database(db_path)
@@ -188,6 +191,8 @@ def test_search(httpx_mock, tmpdir, table_option):
     extra_opts = []
     if table_option:
         extra_opts.extend([table_option, "other_table"])
+    if count:
+        extra_opts.extend(["--count", str(count)])
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -201,7 +206,59 @@ def test_search(httpx_mock, tmpdir, table_option):
         + extra_opts,
     )
     assert result.exit_code == 0
-    assert result.output == "1.000 1\n1.000 2\n"
+    if count == 1:
+        assert result.output == "1.000 1\n"
+    else:
+        assert result.output == "1.000 1\n1.000 2\n"
+
+
+@mock.patch.dict(os.environ, {"OPENAI_API_KEY": "abc"})
+def test_query(mocker):
+    mocked_create = mocker.patch("openai.ChatCompletion.create")
+
+    mock_response = {
+        "choices": [{"message": {"content": "Sample response"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+    }
+    message_mock = MagicMock(
+        spec_set=["content"], content=mock_response["choices"][0]["message"]["content"]
+    )
+    choice_mock = MagicMock(spec_set=["message"], message=message_mock)
+    usage_mock = MagicMock(
+        spec_set=["prompt_tokens", "completion_tokens", "total_tokens"],
+        **mock_response["usage"]
+    )
+    mocked_create.return_value = MagicMock(choices=[choice_mock], usage=usage_mock)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "query",
+            ":memory:",
+            "select chatgpt('hello')",
+        ],
+    )
+    assert result.exit_code == 0
+    assert result.output == (
+        "Running\n\n"
+        '{"chatgpt(\'hello\')": "Sample response"}\n'
+        "Total price: $0.0001 (0.0060 cents)\n"
+        "{\n"
+        '    "chatgpt": {\n'
+        '        "completion_tokens": 20,\n'
+        '        "prompt_tokens": 10,\n'
+        '        "price_100th_cents": 0.6\n'
+        "    }\n"
+        "}\n"
+    )
+    mocked_create.assert_called_once_with(
+        model="gpt-3.5-turbo",
+        messages=[
+            {"role": "user", "content": "hello"},
+        ],
+    )
+
 
 @pytest.mark.parametrize("table_option", (None, "-t", "--table"))
 def test_similar(httpx_mock, tmpdir, table_option):

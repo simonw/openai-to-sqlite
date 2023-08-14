@@ -1,9 +1,25 @@
 import click
 import httpx
 import json
+import openai
 from sqlite_utils.utils import rows_from_file, Format
+from sqlite_utils.utils import sqlite3
 import sqlite_utils
 import struct
+import tiktoken
+
+sqlite3.enable_callback_tracebacks(True)
+
+PRICING = {
+    # model, (prompt, completion)
+    # prices are per 1K tokens in 100ths of a cent
+    "gpt4": (300, 600),
+    "chatgpt": (20, 20),
+    "ada": (4, 4),
+    "babbage": (5, 5),
+    "curie": (20, 20),
+    "davinci": (200, 200),
+}
 
 
 @click.group()
@@ -111,7 +127,11 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach, batc
                     pass
                 text = " ".join(v or "" for v in values[1:])
                 ids_in_batch.append(id)
-                text_to_send.append(text)
+                # Actual limit is 8191 but we are being a bit short for safety:
+                text_to_send.append(truncate_tokens(text, 8100))
+            if not text_to_send:
+                # Skip logic could have resulted in an empty batch
+                continue
             # Send to OpenAI, but only if batch is populated - since
             # the skip logic could have resulted in an empty batch
             if text_to_send:
@@ -161,9 +181,18 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach, batc
     default="embeddings",
     help="Name of the table containing the embeddings",
 )
-def search(db_path, query, token, table_name):
+@click.option(
+    "--count",
+    type=int,
+    default=10,
+    help="Number of results to return",
+)
+def search(db_path, query, token, table_name, count):
     """
-    Search embeddings using cosine similarity against a query
+    Search embeddings using cosine similarity against a query.
+
+    The query you pass will be embedded using the OpenAI API,
+    then the closest matching records from the table will be shown.
     """
     if not token:
         raise click.ClickException(
@@ -193,8 +222,134 @@ def search(db_path, query, token, table_name):
         for id, other_vector in other_vectors
     ]
     results.sort(key=lambda r: r[1], reverse=True)
-    for id, score in results[:10]:
+    for id, score in results[:count]:
         print(f"{score:.3f} {id}")
+
+
+@cli.command()
+@click.argument(
+    "db_path",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+@click.argument("sql")
+@click.option(
+    "--token",
+    help="OpenAI API key",
+    envvar="OPENAI_API_KEY",
+)
+def query(db_path, sql, token):
+    """
+    Execute SQL query against the database, with access to these functions:
+
+    \b
+    - chatgpt(prompt) - run GPT3.5 against the prompt
+    - chatgpt(prompt, system_prompt) - GPT 3.5 with a system prompt
+    """
+    if not token:
+        raise click.ClickException(
+            "OpenAI API token is required, use --token=x or set the "
+            "OPENAI_API_KEY environment variable"
+        )
+    openai.api_key = token
+    db = sqlite_utils.Database(db_path)
+
+    used_tokens = []
+
+    def usage(model, usage):
+        assert usage.total_tokens == usage.completion_tokens + usage.prompt_tokens
+        used_tokens.append((model, (usage.completion_tokens, usage.prompt_tokens)))
+
+    # First pass to count executions
+    todo_count = 0
+
+    @db.register_function(name="chatgpt")
+    def _(prompt):
+        nonlocal todo_count
+        todo_count += 1
+        return ""
+
+    @db.register_function(name="chatgpt")
+    def _(prompt, system_prompt):
+        nonlocal todo_count
+        todo_count += 1
+        return ""
+
+    # Run it in a transaction and then roll it back
+    with db.conn:
+        db.execute(sql)
+        db.conn.rollback()
+
+    with click.progressbar(length=todo_count, label="Running", show_pos=True) as bar:
+        # Register the functions to do the work
+        @db.register_function(name="chatgpt", replace=True)
+        def _(prompt):
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            usage("chatgpt", response.usage)
+            bar.update(1)
+            return response.choices[0].message.content
+
+        @db.register_function(name="chatgpt", replace=True)
+        def _(prompt, system_prompt):
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            usage("chatgpt", response.usage)
+            bar.update(1)
+            return response.choices[0].message.content
+
+        with db.conn:
+            cursor = db.execute(sql)
+            if cursor.description:
+                headers = [col[0] for col in cursor.description]
+            click.echo("")
+            for row in cursor:
+                if headers:
+                    row = dict(zip(headers, row))
+                    click.echo(json.dumps(row))
+
+    # Calculate price
+    price_100th_cents = 0
+    per_model = {}
+    for model, (completion, prompt) in used_tokens:
+        prices = PRICING[model]
+        model_price = ((prompt * prices[0]) / 1000.0) + (
+            (completion * prices[1]) / 1000.0
+        )
+        if model not in per_model:
+            per_model[model] = {
+                "completion_tokens": 0,
+                "prompt_tokens": 0,
+                "price_100th_cents": 0,
+            }
+        per_model[model]["completion_tokens"] += completion
+        per_model[model]["prompt_tokens"] += prompt
+        per_model[model]["price_100th_cents"] += model_price
+        price_100th_cents += model_price
+    cents = price_100th_cents / 100
+    message = f"Total price: ${cents / 100:.4f}"
+    if cents < 100:
+        message += f" ({cents:.4f} cents)"
+    click.echo(message, err=True)
+    click.echo(json.dumps(round_floats(per_model), indent=4), err=True)
+
+
+def round_floats(o):
+    if isinstance(o, float):
+        return round(o, 5)
+    if isinstance(o, dict):
+        return {k: round_floats(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [round_floats(x) for x in o]
+    return o
 
 
 def cosine_similarity(a, b):
@@ -259,3 +414,23 @@ def similar(db_path, entry, table_name):
     results.sort(key=lambda r: r[1], reverse=True)
     for id, score in results[:10]:
         print(f"{score:.3f} {id}")
+
+
+encoding = None
+
+
+def count_tokens(string: str) -> int:
+    """Returns the number of tokens in a text string."""
+    global encoding
+    if encoding is None:
+        encoding = tiktoken.get_encoding("cl100k_base")
+    return len(encoding.encode(string))
+
+
+def truncate_tokens(text: str, truncate: int) -> str:
+    global encoding
+    if encoding is None:
+        encoding = tiktoken.get_encoding("cl100k_base")
+    tokens = encoding.encode(text)
+    tokens = tokens[:truncate]
+    return encoding.decode(tokens)
