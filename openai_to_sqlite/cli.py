@@ -378,6 +378,44 @@ def batch_rows(rows, batch_size):
         yield batch
 
 
+@cli.command()
+@click.argument(
+    "db_path",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+@click.argument("entry")
+@click.option(
+    "table_name",
+    "-t",
+    "--table",
+    default="embeddings",
+    help="Name of the table containing the embeddings",
+)
+def similar(db_path, entry, table_name):
+    """
+    Display similar entries
+    """
+    db = sqlite_utils.Database(db_path)
+    table = db[table_name]
+    if not table.exists():
+        raise click.ClickException(f"Table {table_name} does not exist")
+    # Fetch the embedding for the query
+    try:
+        row = table.get(entry)
+    except sqlite_utils.db.NotFoundError:
+        raise click.ClickException(f"Entry not found:" + entry)
+    vector = decode(row["embedding"])
+    # Now calculate cosine similarity with everything in the database table
+    other_vectors = [(row["id"], decode(row["embedding"])) for row in table.rows]
+    results = [
+        (id, cosine_similarity(vector, other_vector))
+        for id, other_vector in other_vectors
+    ]
+    results.sort(key=lambda r: r[1], reverse=True)
+    for id, score in results[:10]:
+        print(f"{score:.3f} {id}")
+
+
 encoding = None
 
 

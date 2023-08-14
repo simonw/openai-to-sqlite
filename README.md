@@ -205,6 +205,27 @@ openai-to-sqlite search content.db 'this is my search term' -t documents
 Add `--count 20` to retrieve 20 results (the default is 10).
 ```
 
+### Search for similar content with the similar command
+
+Having saved the embeddings for content, you can search for similar content with the `similar` command:
+```bash
+oopenai-to-sqlite similar embeddings.db '<content identifier>'
+```
+The output will be a list of cosine similarity scores and content IDs:
+```
+% openai-to-sqlite similar embeddings-bjcp-2021.db '23G Gose'
+1.000 23G Gose
+0.929 24A Witbier
+0.921 23A Berliner Weisse
+0.909 05B Kölsch
+0.907 01D American Wheat Beer
+0.906 27 Historical Beer: Lichtenhainer
+0.905 23D Lambic
+0.905 10A Weissbier
+0.904 04B Festbier
+0.904 01B American Lager
+```
+
 ## Development
 
 To contribute to this tool, first checkout the code. Then create a new virtual environment:

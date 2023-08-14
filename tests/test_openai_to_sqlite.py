@@ -258,3 +258,34 @@ def test_query(mocker):
             {"role": "user", "content": "hello"},
         ],
     )
+
+
+@pytest.mark.parametrize("table_option", (None, "-t", "--table"))
+def test_similar(httpx_mock, tmpdir, table_option):
+    db_path = str(tmpdir / "embeddings.db")
+    db = sqlite_utils.Database(db_path)
+    table = "embeddings"
+    if table_option:
+        table = "other_table"
+    db[table].insert_all(
+        [
+            {"id": 1, "embedding": MOCK_EMBEDDING},
+            {"id": 2, "embedding": MOCK_EMBEDDING},
+        ],
+        pk="id",
+    )
+    extra_opts = []
+    if table_option:
+        extra_opts.extend([table_option, "other_table"])
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "similar",
+            db_path,
+            "1"
+        ]
+        + extra_opts,
+        )
+    assert result.exit_code == 0
+    assert result.output == "1.000 1\n1.000 2\n"
