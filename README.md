@@ -201,6 +201,8 @@ The output will be a list of cosine similarity scores and content IDs:
 Add the `-t/--table` option if your embeddings are stored in a different table:
 ```bash
 openai-to-sqlite search content.db 'this is my search term' -t documents
+
+Add `--count 20` to retrieve 20 results (the default is 10).
 ```
 
 ## Development
