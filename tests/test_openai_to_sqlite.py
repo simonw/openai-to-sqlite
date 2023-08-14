@@ -173,7 +173,8 @@ def test_sql(httpx_mock, tmpdir, use_other_db, table_option):
 
 
 @pytest.mark.parametrize("table_option", (None, "-t", "--table"))
-def test_search(httpx_mock, tmpdir, table_option):
+@pytest.mark.parametrize("count", [None, 1])
+def test_search(httpx_mock, tmpdir, table_option, count):
     httpx_mock.add_response(json=MOCK_RESPONSE)
     db_path = str(tmpdir / "embeddings.db")
     db = sqlite_utils.Database(db_path)
@@ -190,6 +191,8 @@ def test_search(httpx_mock, tmpdir, table_option):
     extra_opts = []
     if table_option:
         extra_opts.extend([table_option, "other_table"])
+    if count:
+        extra_opts.extend(["--count", str(count)])
     runner = CliRunner()
     result = runner.invoke(
         cli,
@@ -203,7 +206,10 @@ def test_search(httpx_mock, tmpdir, table_option):
         + extra_opts,
     )
     assert result.exit_code == 0
-    assert result.output == "1.000 1\n1.000 2\n"
+    if count == 1:
+        assert result.output == "1.000 1\n"
+    else:
+        assert result.output == "1.000 1\n1.000 2\n"
 
 
 @mock.patch.dict(os.environ, {"OPENAI_API_KEY": "abc"})

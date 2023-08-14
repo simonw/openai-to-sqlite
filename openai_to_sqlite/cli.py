@@ -181,9 +181,18 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach, batc
     default="embeddings",
     help="Name of the table containing the embeddings",
 )
-def search(db_path, query, token, table_name):
+@click.option(
+    "--count",
+    type=int,
+    default=10,
+    help="Number of results to return",
+)
+def search(db_path, query, token, table_name, count):
     """
-    Search embeddings using cosine similarity against a query
+    Search embeddings using cosine similarity against a query.
+
+    The query you pass will be embedded using the OpenAI API,
+    then the closest matching records from the table will be shown.
     """
     if not token:
         raise click.ClickException(
@@ -213,7 +222,7 @@ def search(db_path, query, token, table_name):
         for id, other_vector in other_vectors
     ]
     results.sort(key=lambda r: r[1], reverse=True)
-    for id, score in results[:10]:
+    for id, score in results[:count]:
         print(f"{score:.3f} {id}")
 
 
