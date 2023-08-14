@@ -280,12 +280,7 @@ def test_similar(httpx_mock, tmpdir, table_option):
     runner = CliRunner()
     result = runner.invoke(
         cli,
-        [
-            "similar",
-            db_path,
-            "1"
-        ]
-        + extra_opts,
-        )
+        ["similar", db_path, "1"] + extra_opts,
+    )
     assert result.exit_code == 0
     assert result.output == "1.000 1\n1.000 2\n"
