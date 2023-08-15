@@ -275,7 +275,7 @@ def test_similar(httpx_mock, tmpdir, table_option, save, save_table):
     db[table].insert_all(
         [
             {"id": 1, "embedding": MOCK_EMBEDDING},
-            {"id": 2, "embedding": MOCK_EMBEDDING},
+            {"id": 2, "embedding": MOCK_EMBEDDING_2},
         ],
         pk="id",
     )
@@ -283,7 +283,7 @@ def test_similar(httpx_mock, tmpdir, table_option, save, save_table):
     if table_option:
         extra_opts.extend([table_option, "other_table"])
     if save:
-        extra_opts.append("--save")
+        extra_opts.extend(["--save", "--print"])
         if save_table:
             extra_opts.extend(["--save-table", save_table])
     runner = CliRunner()
