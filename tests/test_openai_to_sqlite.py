@@ -261,7 +261,9 @@ def test_query(mocker):
 
 
 @pytest.mark.parametrize("table_option", (None, "-t", "--table"))
-def test_similar(httpx_mock, tmpdir, table_option):
+@pytest.mark.parametrize("save", (None, True))
+@pytest.mark.parametrize("save_table", (None, "custom_save"))
+def test_similar(httpx_mock, tmpdir, table_option, save, save_table):
     db_path = str(tmpdir / "embeddings.db")
     db = sqlite_utils.Database(db_path)
     table = "embeddings"
@@ -277,10 +279,19 @@ def test_similar(httpx_mock, tmpdir, table_option):
     extra_opts = []
     if table_option:
         extra_opts.extend([table_option, "other_table"])
+    if save:
+        extra_opts.append("--save")
+        if save_table:
+            extra_opts.extend(["--save-table", save_table])
     runner = CliRunner()
     result = runner.invoke(
         cli,
         ["similar", db_path, "1"] + extra_opts,
     )
     assert result.exit_code == 0
-    assert result.output == "1.000 1\n1.000 2\n"
+    assert result.output == "1\n  1.000 2\n"
+    if save:
+        # Check the table was populated
+        assert list(db[save_table or "similarities"].rows) == [
+            {"id": "1", "other_id": 2, "score": 1.0}
+        ]

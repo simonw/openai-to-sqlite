@@ -383,7 +383,7 @@ def batch_rows(rows, batch_size):
     "db_path",
     type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
 )
-@click.argument("entry")
+@click.argument("entries", nargs=-1)
 @click.option(
     "table_name",
     "-t",
@@ -391,29 +391,75 @@ def batch_rows(rows, batch_size):
     default="embeddings",
     help="Name of the table containing the embeddings",
 )
-def similar(db_path, entry, table_name):
+@click.option(
+    "--count",
+    type=int,
+    default=10,
+    help="Number of results to return",
+)
+@click.option(
+    "--all",
+    is_flag=True,
+    help="Calculate similar records for every record in the database",
+)
+@click.option(
+    "--save", is_flag=True, help="Save the results to a table called similarities"
+)
+@click.option(
+    "--save-table",
+    default="similarities",
+    help="Name of the table to save results to",
+)
+def similar(db_path, entries, table_name, count, all, save, save_table):
     """
-    Display similar entries
+    Display similar entries to the entries provided.
     """
     db = sqlite_utils.Database(db_path)
     table = db[table_name]
     if not table.exists():
         raise click.ClickException(f"Table {table_name} does not exist")
-    # Fetch the embedding for the query
-    try:
-        row = table.get(entry)
-    except sqlite_utils.db.NotFoundError:
-        raise click.ClickException(f"Entry not found:" + entry)
-    vector = decode(row["embedding"])
-    # Now calculate cosine similarity with everything in the database table
-    other_vectors = [(row["id"], decode(row["embedding"])) for row in table.rows]
-    results = [
-        (id, cosine_similarity(vector, other_vector))
-        for id, other_vector in other_vectors
-    ]
-    results.sort(key=lambda r: r[1], reverse=True)
-    for id, score in results[:10]:
-        print(f"{score:.3f} {id}")
+    if not all and not entries:
+        raise click.ClickException("Must specify entries or --all")
+    if all:
+        if entries:
+            raise click.ClickException("Cannot specify entries when using --all")
+        if recalculate_for_matches:
+            raise click.ClickException(
+                "Cannot use --recalculate-for-matches with --all"
+            )
+        entries = [row["id"] for row in table.rows]
+
+    # We run two rounds - the first is for the things that were specified
+    for entry in entries:
+        try:
+            row = table.get(entry)
+        except sqlite_utils.db.NotFoundError:
+            raise click.ClickException(f"Entry not found:" + entry)
+        vector = decode(row["embedding"])
+        # Now calculate cosine similarity with everything in the database table
+        other_vectors = [(row["id"], decode(row["embedding"])) for row in table.rows]
+        results = [
+            (id, cosine_similarity(vector, other_vector))
+            for id, other_vector in other_vectors
+        ]
+        results.sort(key=lambda r: r[1], reverse=True)
+        print(results[0][0])
+        top_results = results[1 : count + 1]
+        for id, score in top_results:
+            print(f"  {score:.3f} {id}")
+        if save:
+            db[save_table].insert_all(
+                [
+                    {
+                        "id": entry,
+                        "other_id": id,
+                        "score": score,
+                    }
+                    for id, score in top_results
+                ],
+                pk=("id", "other_id"),
+                replace=True,
+            )
 
 
 encoding = None
