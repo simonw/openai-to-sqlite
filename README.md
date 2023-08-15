@@ -12,9 +12,9 @@ See [Semantic search answers: Q&A against documentation with GPT3 + OpenAI embed
 ## Installation
 
 Install this tool using `pip`:
-
-    pip install openai-to-sqlite
-
+```bash
+pip install openai-to-sqlite
+```
 ## Configuration
 
 You will need an OpenAI API key to use this tool.
@@ -22,9 +22,9 @@ You will need an OpenAI API key to use this tool.
 You can create one at https://beta.openai.com/account/api-keys
 
 You can then either set the API key as an environment variable:
-
-    export OPENAI_API_KEY=sk-...
-
+```bash
+export OPENAI_API_KEY=sk-...
+```
 Or pass it to each command using the `--token sk-...` option.
 
 ## Calling OpenAI APIs with SQL functions
@@ -39,7 +39,7 @@ Functions available are:
 More functions are planned in the future.
 
 Here's how to use this command to run basic sentiment analysis against content in a table:
-```
+```bash
 openai-to-sqlite query database.db "
   update messages set sentiment = chatgpt(
     'Sentiment analysis for this message: ' || message ||
@@ -55,7 +55,7 @@ The command will display a progress bar indicating how many rows are being proce
 
 You can add an empty `sentiment` column to a table using [sqlite-utils](https://sqlite-utils.datasette.io/) like this:
 
-```
+```bash
 sqlite-utils add-column database.db messages sentiment
 ```
 
@@ -81,18 +81,16 @@ The embeddings from the API will then be saved as binary blobs in the `embedding
 ### JSON, CSV and TSV
 
 Given a CSV file like this:
-
-    id,content
-    1,This is a test
-    2,This is another test
-
+```csv
+id,content
+1,This is a test
+2,This is another test
+```
 Embeddings can be stored like so:
 ```bash
 openai-to-sqlite embeddings embeddings.db data.csv
 ```
-
 The resulting schema looks like this:
-
 ```sql
 CREATE TABLE [embeddings] (
    [id] TEXT PRIMARY KEY,
@@ -117,7 +115,7 @@ Or as JSON data:
 ]
 ```
 Imported like this:
-```
+```bash
 openai-to-sqlite embeddings embeddings.db data.json
 ```
 In each of these cases the tool automatically detects the format of the data. It does this by inspecting the data itself - it does not consider the file extension.
@@ -139,7 +137,7 @@ cat data.tsv | openai-to-sqlite embeddings embeddings.db -
 
 The `--sql` option can be used to read data to be embedded from the attached SQLite database. The query must return an `id` column and one or more text columns to be embedded.
 
-```
+```bash
 openai-to-sqlite embeddings content.db \
   --sql "select id, title from documents"
 ```
@@ -147,7 +145,7 @@ This will create a `embeddings` table in the `content.db` database and populate 
 
 You can also store embeddings in one database while reading data from another database, using the `--attach alias filename.db` option:
 
-```
+```bash
 openai-to-sqlite embeddings embeddings.db \
   --attach documents documents.db \
   --sql "select id, title from documents.documents"
@@ -184,8 +182,10 @@ Having saved the embeddings for content, you can run searches using the `search`
 openai-to-sqlite search embeddings.db 'this is my search term'
 ```
 The output will be a list of cosine similarity scores and content IDs:
+```bash
+openai-to-sqlite search blog.db 'cool datasette demo'
 ```
-% openai-to-sqlite search blog.db 'cool datasette demo'
+```
 0.843 7849
 0.830 8036
 0.828 8195
@@ -212,32 +212,59 @@ Having saved the embeddings for content, you can search for similar content with
 oopenai-to-sqlite similar embeddings.db '<content identifier>'
 ```
 The output will be a list of cosine similarity scores and content IDs:
+```bash
+openai-to-sqlite similar embeddings-bjcp-2021.db '23G Gose'
 ```
-% openai-to-sqlite similar embeddings-bjcp-2021.db '23G Gose'
-1.000 23G Gose
-0.929 24A Witbier
-0.921 23A Berliner Weisse
-0.909 05B Kölsch
-0.907 01D American Wheat Beer
-0.906 27 Historical Beer: Lichtenhainer
-0.905 23D Lambic
-0.905 10A Weissbier
-0.904 04B Festbier
-0.904 01B American Lager
 ```
+23G Gose
+  1.000 23G Gose
+  0.929 24A Witbier
+  0.921 23A Berliner Weisse
+  0.909 05B Kölsch
+  0.907 01D American Wheat Beer
+  0.906 27 Historical Beer: Lichtenhainer
+  0.905 23D Lambic
+  0.905 10A Weissbier
+  0.904 04B Festbier
+  0.904 01B American Lager
+```
+You can pass more than one IDs to see similarities calculated for each one:
+```bash
+openai-to-sqlite similar embeddings-bjcp-2021.db \
+  '23G Gose' '01A American Light Lager'
+```
+Or pass `--all` to run similarity for every item in the database. This runs similarity calculations for the number of items squared so it can be quite a long running operation:
+```bash
+openai-to-sqlite similar embeddings-bjcp-2021.db --all
+```
+To save these calculations to a `similarities` table in the database, use the `--save` option:
+```bash
+openai-to-sqlite similar embeddings-bjcp-2021.db --all --save
+```
+The `--save` option disables output. You can re-enable output with `--print`:
+```bash
+openai-to-sqlite similar embeddings-bjcp-2021.db --all --save --print
+```
+To save to a database table with a name other than `similarities`, use `--table`:
+```bash
+openai-to-sqlite similar embeddings-bjcp-2021.db \
+  --all --save --table my_similarities
+```
+
 
 ## Development
 
 To contribute to this tool, first checkout the code. Then create a new virtual environment:
-
-    cd openai-to-sqlite
-    python -m venv venv
-    source venv/bin/activate
-
+```bash
+cd openai-to-sqlite
+python -m venv venv
+source venv/bin/activate
+```
 Now install the dependencies and test dependencies:
-
-    pip install -e '.[test]'
-
+```bash
+pip install -e '.[test]'
+```
 To run the tests:
-
-    pytest
+```bash
+pytest
+```
