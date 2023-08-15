@@ -9,6 +9,8 @@ This tool provides utilities for interacting with OpenAI APIs and storing the re
 
 See [Semantic search answers: Q&A against documentation with GPT3 + OpenAI embeddings](https://simonwillison.net/2023/Jan/13/semantic-search-answers/) for background on this project.
 
+For a tutorial on using this for related content, see [Storing and serving related documents with openai-to-sqlite and embeddings](https://til.simonwillison.net/llms/openai-embeddings-related-content).
+
 ## Installation
 
 Install this tool using `pip`:
