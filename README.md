@@ -251,6 +251,22 @@ openai-to-sqlite similar embeddings-bjcp-2021.db \
   --all --save --table my_similarities
 ```
 
+## --recalculate-for-matches
+
+Re-calculating similarities for every row in the database can be quite a lengthy operation.
+
+If you know which rows have just been added, you can speed things up using `--recalculate-for-matches`.
+
+This tells `openai-to-sqlite similar` to only re-calculate similarities for rows that are close matches to the specified rows.
+
+This means you can add one or two additional records and then trigger an update of the saved similarity scores for just those new records plus for the twenty closest matches to those new records like this:
+
+```bash
+openai-to-sqlite similar embeddings-bjcp-2021.db \
+  --save '23G Gose' '01A American Light Lager' \
+  --recalculate-for-matches \
+  --count 20
+```
 
 ## Development
 

@@ -410,7 +410,28 @@ def batch_rows(rows, batch_size):
     default="similarities",
     help="Name of the table to save results to",
 )
-def similar(db_path, entries, table_name, count, all, save, save_table):
+@click.option(
+    "--recalculate-for-matches",
+    is_flag=True,
+    help="Recalculate the similarities for any that match the first set",
+)
+@click.option(
+    "print_",
+    "--print",
+    is_flag=True,
+    help="Echo the similarities even while saving them to the database",
+)
+def similar(
+    db_path,
+    entries,
+    table_name,
+    count,
+    all,
+    save,
+    save_table,
+    recalculate_for_matches,
+    print_,
+):
     """
     Display similar entries to the entries provided.
     """
@@ -430,36 +451,47 @@ def similar(db_path, entries, table_name, count, all, save, save_table):
         entries = [row["id"] for row in table.rows]
 
     # We run two rounds - the first is for the things that were specified
-    for entry in entries:
-        try:
-            row = table.get(entry)
-        except sqlite_utils.db.NotFoundError:
-            raise click.ClickException(f"Entry not found:" + entry)
-        vector = decode(row["embedding"])
-        # Now calculate cosine similarity with everything in the database table
-        other_vectors = [(row["id"], decode(row["embedding"])) for row in table.rows]
-        results = [
-            (id, cosine_similarity(vector, other_vector))
-            for id, other_vector in other_vectors
-        ]
-        results.sort(key=lambda r: r[1], reverse=True)
-        print(results[0][0])
-        top_results = results[1 : count + 1]
-        for id, score in top_results:
-            print(f"  {score:.3f} {id}")
-        if save:
-            db[save_table].insert_all(
-                [
-                    {
-                        "id": entry,
-                        "other_id": id,
-                        "score": score,
-                    }
-                    for id, score in top_results
-                ],
-                pk=("id", "other_id"),
-                replace=True,
-            )
+    for round in (1, 2):
+        next_round = []
+        for entry in entries:
+            try:
+                row = table.get(entry)
+            except sqlite_utils.db.NotFoundError:
+                raise click.ClickException(f"Entry not found:" + entry)
+            vector = decode(row["embedding"])
+            # Now calculate cosine similarity with everything in the database table
+            other_vectors = [
+                (row["id"], decode(row["embedding"])) for row in table.rows
+            ]
+            results = [
+                (id, cosine_similarity(vector, other_vector))
+                for id, other_vector in other_vectors
+            ]
+            results.sort(key=lambda r: r[1], reverse=True)
+            if print_ or (not save):
+                click.echo(results[0][0])
+            top_results = results[1 : count + 1]
+            for id, score in top_results:
+                if print_ or (not save):
+                    click.echo(f"  {score:.3f} {id}")
+                next_round.append(id)
+            if save:
+                db[save_table].insert_all(
+                    [
+                        {
+                            "id": entry,
+                            "other_id": id,
+                            "score": score,
+                        }
+                        for id, score in top_results
+                    ],
+                    pk=("id", "other_id"),
+                    replace=True,
+                )
+        if not recalculate_for_matches or not next_round:
+            break
+        else:
+            entries = next_round
 
 
 encoding = None

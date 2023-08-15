@@ -44,6 +44,9 @@ MOCK_RESPONSE_BATCH_SIZE_1 = {
 }
 
 MOCK_EMBEDDING = encode([1.5] * 1536)
+MOCK_EMBEDDING_2 = encode([2.0] * 1536)
+MOCK_EMBEDDING_3 = encode([2.1] * 1536)
+MOCK_EMBEDDING_4 = encode([0.1] * 1536)
 
 
 @mock.patch.dict(os.environ, {"OPENAI_API_KEY": ""})
@@ -295,3 +298,49 @@ def test_similar(httpx_mock, tmpdir, table_option, save, save_table):
         assert list(db[save_table or "similarities"].rows) == [
             {"id": "1", "other_id": 2, "score": 1.0}
         ]
+
+
+def test_similar_recalculate_for_matches(tmpdir):
+    db_path = str(tmpdir / "embeddings.db")
+    db = sqlite_utils.Database(db_path)
+    db["embeddings"].insert_all(
+        [
+            {"id": 1, "embedding": MOCK_EMBEDDING},
+            {"id": 2, "embedding": MOCK_EMBEDDING_2},
+            {"id": 3, "embedding": MOCK_EMBEDDING_3},
+        ],
+        pk="id",
+    )
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["similar", db_path, "--all", "--save"],
+    )
+    assert result.exit_code == 0
+    rows1 = list(db["similarities"].rows)
+    assert rows1 == [
+        {"id": 1, "other_id": 1, "score": 1.0},
+        {"id": 1, "other_id": 2, "score": 1.0},
+        {"id": 2, "other_id": 2, "score": pytest.approx(1.0000000000000002)},
+        {"id": 2, "other_id": 1, "score": 1.0},
+        {"id": 3, "other_id": 2, "score": pytest.approx(1.0000000000000075)},
+        {"id": 3, "other_id": 3, "score": pytest.approx(1.0000000000000002)},
+    ]
+    # Insert another record and run it again for the 1 closest match
+    db["embeddings"].insert({"id": 4, "embedding": MOCK_EMBEDDING_4})
+    result = runner.invoke(
+        cli,
+        ["similar", db_path, "4", "--count", 1, "--save", "--recalculate-for-matches"],
+    )
+    assert result.exit_code == 0
+    rows2 = list(db["similarities"].rows)
+    assert rows2 == [
+        {"id": 1, "other_id": 1, "score": 1.0},
+        {"id": 1, "other_id": 2, "score": 1.0},
+        {"id": 2, "other_id": 2, "score": pytest.approx(1.0000000000000002)},
+        {"id": 2, "other_id": 1, "score": 1.0},
+        {"id": 3, "other_id": 2, "score": pytest.approx(1.000000000000018)},
+        {"id": 3, "other_id": 3, "score": 1.0},
+        {"id": 4, "other_id": 1, "score": pytest.approx(1.0000000000000075)},
+        {"id": 1, "other_id": 4, "score": pytest.approx(1.0000000000000075)},
+    ]
