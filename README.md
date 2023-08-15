@@ -251,7 +251,7 @@ openai-to-sqlite similar embeddings-bjcp-2021.db \
   --all --save --table my_similarities
 ```
 
-## --recalculate-for-matches
+### --recalculate-for-matches
 
 Re-calculating similarities for every row in the database can be quite a lengthy operation.
 
@@ -265,7 +265,8 @@ This means you can add one or two additional records and then trigger an update 
 openai-to-sqlite similar embeddings-bjcp-2021.db \
   --save '23G Gose' '01A American Light Lager' \
   --recalculate-for-matches \
-  --count 20
+  --count 20 \
+  --print
 ```
 
 ## Development
