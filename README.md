@@ -239,6 +239,9 @@ Or pass `--all` to run similarity for every item in the database. This runs simi
 ```bash
 openai-to-sqlite similar embeddings-bjcp-2021.db --all
 ```
+
+### Saving similarity calculations to the database
+
 To save these calculations to a `similarities` table in the database, use the `--save` option:
 ```bash
 openai-to-sqlite similar embeddings-bjcp-2021.db --all --save
