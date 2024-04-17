@@ -142,6 +142,7 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach, batc
                         "Content-Type": "application/json",
                     },
                     json={"input": text_to_send, "model": "text-embedding-ada-002"},
+                    timeout=None,
                 )
                 if response.status_code == 400:
                     click.echo(response.json()["error"], err=True)
@@ -211,6 +212,7 @@ def search(db_path, query, token, table_name, count):
             "Content-Type": "application/json",
         },
         json={"input": query, "model": "text-embedding-ada-002"},
+        timeout=None,
     )
     response.raise_for_status()
     data = response.json()
