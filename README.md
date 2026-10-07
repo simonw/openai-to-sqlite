@@ -177,6 +177,30 @@ vector = struct.unpack(
 )
 ```
 
+### Exporting embeddings as JSON
+
+The `to-json` command exports the embeddings from a database as JSON, decoding each one into a list of floats:
+
+```bash
+openai-to-sqlite to-json embeddings.db embeddings.json
+```
+
+The output is a JSON array of objects, one per row:
+
+```json
+[
+{"id": "1", "embedding": [0.0023064255, -0.009327292, ...], "text": "hello"}
+]
+```
+
+By default every BLOB column is treated as an embedding. Use `-e`/`--embedding` to pick one or more specific columns instead:
+
+```bash
+openai-to-sqlite to-json embeddings.db embeddings.json -e embedding -e other_embedding
+```
+
+Use `-t`/`--table` to select a different table, `-i`/`--id` to name the primary key column (default `id`), or `--no-embeddings` to export the IDs and other columns but leave the embedding columns out entirely.
+
 ### Searching embeddings with the search command
 
 Having saved the embeddings for content, you can run searches using the `search` command:

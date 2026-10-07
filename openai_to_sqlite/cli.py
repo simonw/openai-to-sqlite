@@ -88,11 +88,7 @@ def embeddings(db_path, input_path, token, table_name, format, sql, attach, batc
     for alias, attach_path in attach:
         db.attach(alias, attach_path)
     table = db[table_name]
-    if not table.exists():
-        table.create(
-            {"id": str, "embedding": bytes},
-            pk="id",
-        )
+    ensure_embeddings_table(table)
     expected_length = None
     if sql:
         rows = db.query(sql)
@@ -367,6 +363,110 @@ def decode(blob):
 
 def encode(values):
     return struct.pack("f" * 1536, *values)
+
+
+def ensure_embeddings_table(table):
+    if not table.exists():
+        table.create(
+            {"id": str, "embedding": bytes},
+            pk="id",
+        )
+
+
+def embedding_columns_from_table(table):
+    "Return the names of the columns holding 1536 float32 blobs"
+    columns = []
+    for column in table.columns:
+        if column.type.upper() != "BLOB":
+            continue
+        if any(row[column.name] is not None for row in table.rows):
+            columns.append(column.name)
+    return columns
+
+
+def rows_to_export(rows, columns, include_embeddings, id_column="id"):
+    "Yield dictionaries with embeddings decoded to lists of floats"
+    for row in rows:
+        output = {
+            key: value
+            for key, value in row.items()
+            if key != id_column and (include_embeddings or key not in columns)
+        }
+        if include_embeddings:
+            for column in columns:
+                if row.get(column) is not None:
+                    output[column] = list(decode(row[column]))
+        output[id_column] = row[id_column]
+        yield output
+
+
+def json_default(value):
+    "JSON-serialize values that are not natively supported"
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        return bytes(value).hex()
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+@cli.command(name="to-json")
+@click.argument(
+    "db_path",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+@click.argument(
+    "output_path",
+    type=click.File("w"),
+)
+@click.option(
+    "table_name",
+    "-t",
+    "--table",
+    default="embeddings",
+    help="Name of the table containing the embeddings",
+)
+@click.option(
+    "id_column",
+    "-i",
+    "--id",
+    default="id",
+    help="Name of the column containing the IDs",
+)
+@click.option(
+    "embedding_columns",
+    "-e",
+    "--embedding",
+    multiple=True,
+    help="Name of a column containing embeddings - can be used multiple times. "
+    "By default any BLOB column is exported.",
+)
+@click.option(
+    "--no-embeddings",
+    is_flag=True,
+    help="Export the IDs and other columns but not the embeddings",
+)
+def to_json(db_path, output_path, table_name, id_column, embedding_columns, no_embeddings):
+    """
+    Export embeddings from a database as JSON
+
+    The embeddings are exported as JSON lists of floats. By default every
+    BLOB column is treated as an embedding, use --embedding to pick
+    specific columns instead.
+    """
+    db = sqlite_utils.Database(db_path)
+    table = db[table_name]
+    if not table.exists():
+        raise click.ClickException(f"Table {table_name} does not exist")
+    if embedding_columns:
+        columns = list(embedding_columns)
+    else:
+        columns = embedding_columns_from_table(table)
+    output_path.write("[\n")
+    for index, row in enumerate(
+        rows_to_export(table.rows, columns, not no_embeddings, id_column)
+    ):
+        if index:
+            output_path.write(",\n")
+        output_path.write(json.dumps(row, default=json_default))
+    output_path.write("\n]\n")
 
 
 def batch_rows(rows, batch_size):

@@ -1,4 +1,6 @@
 from click.testing import CliRunner
+import json
+
 from openai_to_sqlite.cli import cli, encode
 import os
 import pytest
@@ -344,3 +346,83 @@ def test_similar_recalculate_for_matches(tmpdir):
         {"id": 4, "other_id": 1, "score": pytest.approx(1.0000000000000075)},
         {"id": 1, "other_id": 4, "score": pytest.approx(1.0000000000000075)},
     ]
+
+
+def test_to_json(tmpdir):
+    db_path = str(tmpdir / "embeddings.db")
+    db = sqlite_utils.Database(db_path)
+    db["embeddings"].insert_all(
+        [
+            {"id": "1", "embedding": MOCK_EMBEDDING, "text": "hello"},
+            {"id": "2", "embedding": MOCK_EMBEDDING_2, "text": "world"},
+        ],
+        pk="id",
+    )
+    output_path = str(tmpdir / "out.json")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["to-json", db_path, output_path])
+    assert result.exit_code == 0
+    exported = json.load(open(output_path))
+    assert exported == [
+        {"id": "1", "embedding": [1.5] * 1536, "text": "hello"},
+        {"id": "2", "embedding": [2.0] * 1536, "text": "world"},
+    ]
+
+
+def test_to_json_no_embeddings(tmpdir):
+    db_path = str(tmpdir / "embeddings.db")
+    db = sqlite_utils.Database(db_path)
+    db["embeddings"].insert_all(
+        [
+            {"id": "1", "embedding": MOCK_EMBEDDING, "text": "hello"},
+            {"id": "2", "embedding": MOCK_EMBEDDING_2, "text": "world"},
+        ],
+        pk="id",
+    )
+    output_path = str(tmpdir / "out.json")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["to-json", db_path, output_path, "--no-embeddings"])
+    assert result.exit_code == 0
+    exported = json.load(open(output_path))
+    assert exported == [
+        {"id": "1", "text": "hello"},
+        {"id": "2", "text": "world"},
+    ]
+
+
+def test_to_json_specific_embedding_column(tmpdir):
+    db_path = str(tmpdir / "embeddings.db")
+    db = sqlite_utils.Database(db_path)
+    db["embeddings"].insert_all(
+        [
+            {
+                "id": "1",
+                "embedding": MOCK_EMBEDDING,
+                "other_embedding": MOCK_EMBEDDING_2,
+            },
+        ],
+        pk="id",
+    )
+    output_path = str(tmpdir / "out.json")
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        ["to-json", db_path, output_path, "-e", "embedding"],
+    )
+    assert result.exit_code == 0
+    exported = json.load(open(output_path))
+    # Only the requested embedding column is decoded to a list of floats; other
+    # BLOB columns are kept, hex-encoded, rather than being silently dropped.
+    assert exported[0]["embedding"] == [1.5] * 1536
+    assert exported[0]["other_embedding"] == MOCK_EMBEDDING_2.hex()
+
+
+def test_to_json_missing_table(tmpdir):
+    db_path = str(tmpdir / "embeddings.db")
+    sqlite_utils.Database(db_path)["other"].insert({"id": "1"}, pk="id")
+    output_path = str(tmpdir / "out.json")
+    runner = CliRunner()
+    result = runner.invoke(cli, ["to-json", db_path, output_path])
+    assert result.exit_code == 1
+    assert result.output == "Error: Table embeddings does not exist\n"
+
